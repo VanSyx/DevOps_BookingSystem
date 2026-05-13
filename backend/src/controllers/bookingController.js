@@ -1,4 +1,12 @@
 const VALID_STATUSES = new Set(['pending', 'confirmed', 'cancelled', 'completed']);
+const ACTIVE_SLOT_STATUSES = ['pending', 'confirmed', 'completed'];
+const ALLOWED_TRANSITIONS = {
+    pending: new Set(['confirmed', 'cancelled']),
+    confirmed: new Set(['completed', 'cancelled']),
+    cancelled: new Set(),
+    completed: new Set(),
+};
+const EDITABLE_FIELDS = new Set(['name', 'phone', 'email', 'service', 'book_date', 'book_time', 'note']);
 
 function formatDate(value) {
     if (!value) return '';
@@ -53,6 +61,84 @@ function requireFields(data, fields) {
     }
 }
 
+function badRequest(message) {
+    const err = new Error(message);
+    err.status = 400;
+    return err;
+}
+
+function conflict(message) {
+    const err = new Error(message);
+    err.status = 409;
+    return err;
+}
+
+function notFound(message) {
+    const err = new Error(message);
+    err.status = 404;
+    return err;
+}
+
+function validatePayload(data, { partial = false } = {}) {
+    if (!partial) requireFields(data, ['name', 'phone', 'service', 'book_date', 'book_time']);
+
+    if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+        throw badRequest('Invalid email address');
+    }
+
+    if (data.book_date && !/^\d{4}-\d{2}-\d{2}$/.test(data.book_date)) {
+        throw badRequest('Invalid booking date. Use YYYY-MM-DD');
+    }
+
+    if (data.book_time && !/^\d{2}:\d{2}(:\d{2})?$/.test(data.book_time)) {
+        throw badRequest('Invalid booking time. Use HH:mm');
+    }
+
+    if (data.status && !VALID_STATUSES.has(data.status)) {
+        throw badRequest('Invalid booking status');
+    }
+}
+
+async function getRawBooking(db, id) {
+    const [rows] = await db.query('SELECT * FROM bookings WHERE id=?', [id]);
+    return rows[0] || null;
+}
+
+async function assertNoDuplicateSlot(db, data, excludeId) {
+    if (!data.service || !data.book_date || !data.book_time) return;
+
+    const params = [data.service, data.book_date, data.book_time, ...ACTIVE_SLOT_STATUSES];
+    let sql = `
+        SELECT id, name
+        FROM bookings
+        WHERE service=?
+          AND book_date=?
+          AND book_time=?
+          AND status IN (?, ?, ?)
+    `;
+
+    if (excludeId) {
+        sql += ' AND id<>?';
+        params.push(excludeId);
+    }
+
+    const [rows] = await db.query(sql, params);
+    if (rows.length > 0) {
+        throw conflict('This booking slot is already taken');
+    }
+}
+
+function assertValidTransition(currentStatus, nextStatus) {
+    if (currentStatus === nextStatus) return;
+    if (!ALLOWED_TRANSITIONS[currentStatus]?.has(nextStatus)) {
+        throw conflict(`Cannot change booking status from ${currentStatus} to ${nextStatus}`);
+    }
+}
+
+function isDuplicateKeyError(err) {
+    return err && (err.code === 'ER_DUP_ENTRY' || err.errno === 1062);
+}
+
 exports.getAll = async (req, res, next) => {
     try {
         const db = req.app.locals.db;
@@ -74,10 +160,11 @@ exports.create = async (req, res, next) => {
     try {
         const db = req.app.locals.db;
         const data = normalizePayload(req.body);
-        requireFields(data, ['name', 'phone', 'service', 'book_date', 'book_time']);
+        validatePayload(data);
+        await assertNoDuplicateSlot(db, data);
 
-        if (data.status && !VALID_STATUSES.has(data.status)) {
-            return res.status(400).json({ error: 'Invalid booking status' });
+        if (data.status && data.status !== 'pending') {
+            throw badRequest('New bookings must start as pending');
         }
 
         const [result] = await db.query(
@@ -91,18 +178,29 @@ exports.create = async (req, res, next) => {
                 data.book_date,
                 data.book_time,
                 data.note,
-                data.status || 'pending',
+                'pending',
             ]
         );
         const [rows] = await db.query('SELECT * FROM bookings WHERE id=?', [result.insertId]);
         res.status(201).json(toBooking(rows[0]));
-    } catch (err) { next(err); }
+    } catch (err) {
+        if (isDuplicateKeyError(err)) return next(conflict('This booking slot is already taken'));
+        next(err);
+    }
 };
 
 exports.update = async (req, res, next) => {
     try {
         const db = req.app.locals.db;
         const data = normalizePayload(req.body);
+        validatePayload(data, { partial: true });
+
+        const existing = await getRawBooking(db, req.params.id);
+        if (!existing) throw notFound('Booking not found');
+        if (existing.status === 'cancelled' || existing.status === 'completed') {
+            throw conflict(`Cannot edit a ${existing.status} booking`);
+        }
+
         const fields = [];
         const values = [];
 
@@ -117,28 +215,39 @@ exports.update = async (req, res, next) => {
             status: 'status',
         };
 
-        if (data.status && !VALID_STATUSES.has(data.status)) {
-            return res.status(400).json({ error: 'Invalid booking status' });
-        }
-
         for (const [key, column] of Object.entries(fieldMap)) {
             if (data[key] !== undefined) {
+                if (key === 'status') {
+                    assertValidTransition(existing.status, data.status);
+                }
                 fields.push(`${column}=?`);
                 values.push(data[key]);
             }
         }
 
         if (fields.length === 0) {
-            return res.status(400).json({ error: 'No fields to update' });
+            throw badRequest('No fields to update');
+        }
+
+        const nextSlot = {
+            service: data.service ?? existing.service,
+            book_date: data.book_date ?? formatDate(existing.book_date),
+            book_time: data.book_time ?? formatTime(existing.book_time),
+        };
+        if ([...EDITABLE_FIELDS].some((field) => data[field] !== undefined)) {
+            await assertNoDuplicateSlot(db, nextSlot, req.params.id);
         }
 
         values.push(req.params.id);
         const [result] = await db.query(`UPDATE bookings SET ${fields.join(', ')} WHERE id=?`, values);
-        if (result.affectedRows === 0) return res.status(404).json({ error: 'Booking not found' });
+        if (result.affectedRows === 0) throw notFound('Booking not found');
 
         const [rows] = await db.query('SELECT * FROM bookings WHERE id=?', [req.params.id]);
         res.json(toBooking(rows[0]));
-    } catch (err) { next(err); }
+    } catch (err) {
+        if (isDuplicateKeyError(err)) return next(conflict('This booking slot is already taken'));
+        next(err);
+    }
 };
 
 exports.setStatus = async (req, res, next) => {
@@ -146,10 +255,15 @@ exports.setStatus = async (req, res, next) => {
         const db = req.app.locals.db;
         const { status } = req.body;
         if (!VALID_STATUSES.has(status)) {
-            return res.status(400).json({ error: 'Invalid booking status' });
+            throw badRequest('Invalid booking status');
         }
+
+        const existing = await getRawBooking(db, req.params.id);
+        if (!existing) throw notFound('Booking not found');
+        assertValidTransition(existing.status, status);
+
         const [result] = await db.query('UPDATE bookings SET status=? WHERE id=?', [status, req.params.id]);
-        if (result.affectedRows === 0) return res.status(404).json({ error: 'Booking not found' });
+        if (result.affectedRows === 0) throw notFound('Booking not found');
 
         const [rows] = await db.query('SELECT * FROM bookings WHERE id=?', [req.params.id]);
         res.json(toBooking(rows[0]));

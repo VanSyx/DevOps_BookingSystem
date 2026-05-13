@@ -20,6 +20,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useBookings } from "@/store/bookings";
+import type { BookingStatus } from "@/types/booking";
 
 export const Route = createFileRoute("/bookings_/$id")({
   head: ({ params }) => ({
@@ -30,6 +31,12 @@ export const Route = createFileRoute("/bookings_/$id")({
     <div className="p-10 text-center text-sm text-muted-foreground">Booking not found.</div>
   ),
 });
+
+function canMoveTo(status: BookingStatus, next: BookingStatus) {
+  if (status === "pending") return next === "confirmed" || next === "cancelled";
+  if (status === "confirmed") return next === "completed" || next === "cancelled";
+  return false;
+}
 
 function BookingDetail() {
   const { id } = Route.useParams();
@@ -57,6 +64,29 @@ function BookingDetail() {
     },
   ].filter(Boolean) as { label: string; at: string }[];
 
+  const changeStatus = async (status: BookingStatus, successMessage: string) => {
+    try {
+      await setStatus(booking.id, status);
+      toast.success(successMessage);
+    } catch (error) {
+      toast.error("Status update blocked", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    }
+  };
+
+  const deleteBooking = async () => {
+    try {
+      await remove(booking.id);
+      toast("Deleted");
+      navigate({ to: "/bookings" });
+    } catch (error) {
+      toast.error("Could not delete booking", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    }
+  };
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6 lg:p-8">
       <div className="flex items-center justify-between gap-3">
@@ -66,49 +96,37 @@ function BookingDetail() {
           </Link>
         </Button>
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={async () => {
-              await setStatus(booking.id, "confirmed");
-              toast.success("Confirmed");
-            }}
-          >
-            <CheckCircle2 className="h-4 w-4" /> Confirm
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={async () => {
-              await setStatus(booking.id, "cancelled");
-              toast("Cancelled");
-            }}
-          >
-            <XCircle className="h-4 w-4" /> Cancel
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={async () => {
-              await setStatus(booking.id, "completed");
-              toast.success("Completed");
-            }}
-          >
-            <CheckCheck className="h-4 w-4" /> Complete
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            className="gap-1.5"
-            onClick={async () => {
-              await remove(booking.id);
-              toast("Deleted");
-              navigate({ to: "/bookings" });
-            }}
-          >
+          {canMoveTo(booking.status, "confirmed") && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => changeStatus("confirmed", "Confirmed")}
+            >
+              <CheckCircle2 className="h-4 w-4" /> Confirm
+            </Button>
+          )}
+          {canMoveTo(booking.status, "cancelled") && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => changeStatus("cancelled", "Cancelled")}
+            >
+              <XCircle className="h-4 w-4" /> Cancel
+            </Button>
+          )}
+          {canMoveTo(booking.status, "completed") && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => changeStatus("completed", "Completed")}
+            >
+              <CheckCheck className="h-4 w-4" /> Complete
+            </Button>
+          )}
+          <Button variant="destructive" size="sm" className="gap-1.5" onClick={deleteBooking}>
             <Trash2 className="h-4 w-4" /> Delete
           </Button>
         </div>

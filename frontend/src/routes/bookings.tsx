@@ -85,6 +85,12 @@ const TABS: { value: BookingStatus | "all"; label: string }[] = [
   { value: "cancelled", label: "Cancelled" },
 ];
 
+function canMoveTo(status: BookingStatus, next: BookingStatus) {
+  if (status === "pending") return next === "confirmed" || next === "cancelled";
+  if (status === "confirmed") return next === "completed" || next === "cancelled";
+  return false;
+}
+
 function BookingsPage() {
   const bookings = useBookings((s) => s.bookings);
   const setStatus = useBookings((s) => s.setStatus);
@@ -128,6 +134,28 @@ function BookingsPage() {
     }
     return c;
   }, [bookings]);
+
+  const changeStatus = async (id: string, status: BookingStatus, successMessage: string) => {
+    try {
+      await setStatus(id, status);
+      toast.success(successMessage);
+    } catch (error) {
+      toast.error("Status update blocked", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    }
+  };
+
+  const deleteBooking = async (id: string) => {
+    try {
+      await remove(id);
+      toast("Booking deleted");
+    } catch (error) {
+      toast.error("Could not delete booking", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    }
+  };
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
@@ -357,22 +385,10 @@ function BookingsPage() {
                       onView={() => {}}
                       id={b.id}
                       status={b.status}
-                      onConfirm={async () => {
-                        await setStatus(b.id, "confirmed");
-                        toast.success("Booking confirmed");
-                      }}
-                      onCancel={async () => {
-                        await setStatus(b.id, "cancelled");
-                        toast("Booking cancelled");
-                      }}
-                      onComplete={async () => {
-                        await setStatus(b.id, "completed");
-                        toast.success("Booking completed");
-                      }}
-                      onDelete={async () => {
-                        await remove(b.id);
-                        toast("Booking deleted");
-                      }}
+                      onConfirm={() => changeStatus(b.id, "confirmed", "Booking confirmed")}
+                      onCancel={() => changeStatus(b.id, "cancelled", "Booking cancelled")}
+                      onComplete={() => changeStatus(b.id, "completed", "Booking completed")}
+                      onDelete={() => deleteBooking(b.id)}
                     />
                   </TableCell>
                 </TableRow>
@@ -444,7 +460,7 @@ function RowActions({
           <Eye className="h-4 w-4" />
         </Link>
       </Button>
-      {status !== "confirmed" && (
+      {canMoveTo(status, "confirmed") && (
         <Button
           size="icon"
           variant="ghost"
@@ -455,7 +471,7 @@ function RowActions({
           <CheckCircle2 className="h-4 w-4" />
         </Button>
       )}
-      {status !== "cancelled" && (
+      {canMoveTo(status, "cancelled") && (
         <Button
           size="icon"
           variant="ghost"
@@ -466,7 +482,7 @@ function RowActions({
           <XCircle className="h-4 w-4" />
         </Button>
       )}
-      {status !== "completed" && (
+      {canMoveTo(status, "completed") && (
         <Button
           size="icon"
           variant="ghost"
@@ -489,10 +505,18 @@ function RowActions({
               View details
             </Link>
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={onConfirm}>Mark confirmed</DropdownMenuItem>
-          <DropdownMenuItem onClick={onComplete}>Mark completed</DropdownMenuItem>
-          <DropdownMenuItem onClick={onCancel}>Mark cancelled</DropdownMenuItem>
-          <DropdownMenuSeparator />
+          {canMoveTo(status, "confirmed") && (
+            <DropdownMenuItem onClick={onConfirm}>Mark confirmed</DropdownMenuItem>
+          )}
+          {canMoveTo(status, "completed") && (
+            <DropdownMenuItem onClick={onComplete}>Mark completed</DropdownMenuItem>
+          )}
+          {canMoveTo(status, "cancelled") && (
+            <DropdownMenuItem onClick={onCancel}>Mark cancelled</DropdownMenuItem>
+          )}
+          {(canMoveTo(status, "confirmed") ||
+            canMoveTo(status, "completed") ||
+            canMoveTo(status, "cancelled")) && <DropdownMenuSeparator />}
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <DropdownMenuItem
