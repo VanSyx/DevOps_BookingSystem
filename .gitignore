@@ -22,3 +22,16 @@ Thumbs.db
 
 # Docker
 *.override.yml
+
+# Stray git metadata copied into frontend during UI replacement
+frontend/HEAD
+frontend/config
+frontend/description
+frontend/index
+frontend/packed-refs
+frontend/gk/
+frontend/hooks/
+frontend/info/
+frontend/logs/
+frontend/objects/
+frontend/refs/
