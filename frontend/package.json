@@ -9,6 +9,7 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
+    "test": "echo \"No automated frontend tests yet\" && exit 0",
     "format": "prettier --write ."
   },
   "dependencies": {
