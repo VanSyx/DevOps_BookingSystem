@@ -2,9 +2,9 @@ name: CI — Booking System
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, develop]
   pull_request:
-    branches: [main, dev]
+    branches: [main, develop]
 
 jobs:
   # ─── JOB 1: BACKEND ───────────────────────────────
