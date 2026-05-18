@@ -6,7 +6,7 @@ Booking system theo mô hình DevOps, có đủ `Frontend + Backend API + Databa
 
 - Frontend: React/TanStack Start (`frontend`)
 - Backend API: Express (`backend`)
-- Database: MySQL 8 (`mysql` service)
+- Database:  PostgreSQL 
 
 Core API:
 - `GET /api/health`: kiểm tra deploy và tình trạng backend
