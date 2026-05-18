@@ -1,6 +1,5 @@
 require('dotenv').config();
 const app = require('./app');
-const mysql = require('mysql2/promise');
 const { ensureSchema } = require('./database/schema');
 
 const PORT = process.env.PORT || 3000;
