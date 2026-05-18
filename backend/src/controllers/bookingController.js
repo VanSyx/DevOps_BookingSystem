@@ -100,8 +100,8 @@ function validatePayload(data, { partial = false } = {}) {
 }
 
 async function getRawBooking(db, id) {
-    const [rows] = await db.query('SELECT * FROM bookings WHERE id=?', [id]);
-    return rows[0] || null;
+    const result = await db.query('SELECT * FROM bookings WHERE id = $1', [id]);
+    return result.rows[0] || null;
 }
 
 async function assertNoDuplicateSlot(db, data, excludeId) {
@@ -111,19 +111,19 @@ async function assertNoDuplicateSlot(db, data, excludeId) {
     let sql = `
         SELECT id, name
         FROM bookings
-        WHERE service=?
-          AND book_date=?
-          AND book_time=?
-          AND status IN (?, ?, ?)
+        WHERE service = $1
+          AND book_date = $2
+          AND book_time = $3
+          AND status IN ($4, $5, $6)
     `;
 
     if (excludeId) {
-        sql += ' AND id<>?';
+        sql += ' AND id <> $7';
         params.push(excludeId);
     }
 
-    const [rows] = await db.query(sql, params);
-    if (rows.length > 0) {
+    const result = await db.query(sql, params);
+    if (result.rows.length > 0) {
         throw conflict('This booking slot is already taken');
     }
 }
@@ -136,23 +136,23 @@ function assertValidTransition(currentStatus, nextStatus) {
 }
 
 function isDuplicateKeyError(err) {
-    return err && (err.code === 'ER_DUP_ENTRY' || err.errno === 1062);
+    return err && (err.code === '23505' || err.code === 'ER_DUP_ENTRY' || err.errno === 1062);
 }
 
 exports.getAll = async (req, res, next) => {
     try {
         const db = req.app.locals.db;
-        const [rows] = await db.query('SELECT * FROM bookings ORDER BY book_date, book_time, id');
-        res.json(rows.map(toBooking));
+        const result = await db.query('SELECT * FROM bookings ORDER BY book_date, book_time, id');
+        res.json(result.rows.map(toBooking));
     } catch (err) { next(err); }
 };
 
 exports.getById = async (req, res, next) => {
     try {
         const db = req.app.locals.db;
-        const [rows] = await db.query('SELECT * FROM bookings WHERE id=?', [req.params.id]);
-        if (rows.length === 0) return res.status(404).json({ error: 'Booking not found' });
-        res.json(toBooking(rows[0]));
+        const result = await db.query('SELECT * FROM bookings WHERE id = $1', [req.params.id]);
+        if (result.rows.length === 0) return res.status(404).json({ error: 'Booking not found' });
+        res.json(toBooking(result.rows[0]));
     } catch (err) { next(err); }
 };
 
@@ -167,9 +167,10 @@ exports.create = async (req, res, next) => {
             throw badRequest('New bookings must start as pending');
         }
 
-        const [result] = await db.query(
+        const result = await db.query(
             `INSERT INTO bookings (name, phone, email, service, book_date, book_time, note, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             RETURNING *`,
             [
                 data.name,
                 data.phone,
@@ -181,8 +182,7 @@ exports.create = async (req, res, next) => {
                 'pending',
             ]
         );
-        const [rows] = await db.query('SELECT * FROM bookings WHERE id=?', [result.insertId]);
-        res.status(201).json(toBooking(rows[0]));
+        res.status(201).json(toBooking(result.rows[0]));
     } catch (err) {
         if (isDuplicateKeyError(err)) return next(conflict('This booking slot is already taken'));
         next(err);
@@ -220,8 +220,8 @@ exports.update = async (req, res, next) => {
                 if (key === 'status') {
                     assertValidTransition(existing.status, data.status);
                 }
-                fields.push(`${column}=?`);
                 values.push(data[key]);
+                fields.push(`${column} = $${values.length}`);
             }
         }
 
@@ -239,11 +239,16 @@ exports.update = async (req, res, next) => {
         }
 
         values.push(req.params.id);
-        const [result] = await db.query(`UPDATE bookings SET ${fields.join(', ')} WHERE id=?`, values);
-        if (result.affectedRows === 0) throw notFound('Booking not found');
+        const result = await db.query(
+            `UPDATE bookings
+             SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $${values.length}
+             RETURNING *`,
+            values
+        );
+        if (result.rowCount === 0) throw notFound('Booking not found');
 
-        const [rows] = await db.query('SELECT * FROM bookings WHERE id=?', [req.params.id]);
-        res.json(toBooking(rows[0]));
+        res.json(toBooking(result.rows[0]));
     } catch (err) {
         if (isDuplicateKeyError(err)) return next(conflict('This booking slot is already taken'));
         next(err);
@@ -262,11 +267,16 @@ exports.setStatus = async (req, res, next) => {
         if (!existing) throw notFound('Booking not found');
         assertValidTransition(existing.status, status);
 
-        const [result] = await db.query('UPDATE bookings SET status=? WHERE id=?', [status, req.params.id]);
-        if (result.affectedRows === 0) throw notFound('Booking not found');
+        const result = await db.query(
+            `UPDATE bookings
+             SET status = $1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2
+             RETURNING *`,
+            [status, req.params.id]
+        );
+        if (result.rowCount === 0) throw notFound('Booking not found');
 
-        const [rows] = await db.query('SELECT * FROM bookings WHERE id=?', [req.params.id]);
-        res.json(toBooking(rows[0]));
+        res.json(toBooking(result.rows[0]));
     } catch (err) { next(err); }
 };
 
@@ -278,8 +288,8 @@ exports.cancel = async (req, res, next) => {
 exports.remove = async (req, res, next) => {
     try {
         const db = req.app.locals.db;
-        const [result] = await db.query('DELETE FROM bookings WHERE id=?', [req.params.id]);
-        if (result.affectedRows === 0) return res.status(404).json({ error: 'Booking not found' });
+        const result = await db.query('DELETE FROM bookings WHERE id = $1', [req.params.id]);
+        if (result.rowCount === 0) return res.status(404).json({ error: 'Booking not found' });
         res.status(204).send();
     } catch (err) { next(err); }
 };
@@ -287,22 +297,22 @@ exports.remove = async (req, res, next) => {
 exports.stats = async (req, res, next) => {
     try {
         const db = req.app.locals.db;
-        const [statusRows] = await db.query(`
+        const statusResult = await db.query(`
             SELECT status, COUNT(*) AS total
             FROM bookings
             GROUP BY status
         `);
-        const [todayRows] = await db.query(`
+        const todayResult = await db.query(`
             SELECT COUNT(*) AS total
             FROM bookings
-            WHERE book_date = CURDATE()
+            WHERE book_date = CURRENT_DATE
         `);
         const byStatus = { pending: 0, confirmed: 0, completed: 0, cancelled: 0 };
-        for (const row of statusRows) byStatus[row.status] = Number(row.total);
+        for (const row of statusResult.rows) byStatus[row.status] = Number(row.total);
 
         res.json({
             total: Object.values(byStatus).reduce((sum, value) => sum + value, 0),
-            today: Number(todayRows[0]?.total || 0),
+            today: Number(todayResult.rows[0]?.total || 0),
             byStatus,
         });
     } catch (err) { next(err); }
@@ -311,25 +321,25 @@ exports.stats = async (req, res, next) => {
 exports.customers = async (req, res, next) => {
     try {
         const db = req.app.locals.db;
-        const [rows] = await db.query(`
+        const result = await db.query(`
             SELECT
-                COALESCE(NULLIF(email, ''), CONCAT('phone:', phone)) AS customer_key,
+                COALESCE(NULLIF(email, ''), 'phone:' || phone) AS customer_key,
                 MAX(name) AS name,
                 MAX(phone) AS phone,
                 MAX(email) AS email,
                 COUNT(*) AS total,
-                MAX(book_date) AS lastBooking
+                MAX(book_date) AS last_booking
             FROM bookings
-            GROUP BY customer_key
-            ORDER BY lastBooking DESC
+            GROUP BY COALESCE(NULLIF(email, ''), 'phone:' || phone)
+            ORDER BY last_booking DESC
         `);
 
-        res.json(rows.map((row) => ({
+        res.json(result.rows.map((row) => ({
             name: row.name,
             phone: row.phone,
             email: row.email || '',
             total: Number(row.total),
-            lastBooking: formatDate(row.lastBooking),
+            lastBooking: formatDate(row.last_booking),
         })));
     } catch (err) { next(err); }
 };
