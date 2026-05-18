@@ -13,6 +13,9 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
+    preview: {
+      allowedHosts: ["booking-frontend-igsg.onrender.com"],
+    },
     server: {
       proxy: {
         "/api": "http://localhost:3000",
