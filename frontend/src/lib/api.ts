@@ -1,4 +1,19 @@
-export const API_BASE = import.meta.env.VITE_API_URL ?? "/api";
+const PRODUCTION_API_BASE = "https://booking-backend-1g8f.onrender.com/api";
+
+function getApiBase() {
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+
+  if (
+    typeof window !== "undefined" &&
+    window.location.hostname === "booking-frontend-igsg.onrender.com"
+  ) {
+    return PRODUCTION_API_BASE;
+  }
+
+  return "/api";
+}
+
+export const API_BASE = getApiBase();
 
 export async function apiFetch(path: string, options?: RequestInit) {
   const res = await fetch(`${API_BASE}${path}`, {
