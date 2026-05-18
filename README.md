@@ -1,119 +1,201 @@
 # DevOps_BookingSystem
 
-Booking system theo mô hình DevOps, có đủ `Frontend + Backend API + Database`, chạy bằng Docker Compose và có CI pipeline.
+Booking system theo yeu cau DevOps: co Frontend, Backend API, Database, Docker Compose, CI pipeline va endpoint health check de kiem tra deploy.
 
-## 1. Architecture
+## 1. Kien truc
 
-- Frontend: React/TanStack Start (`frontend`)
-- Backend API: Express (`backend`)
-- Database: MySQL 8 (`mysql` service)
+```mermaid
+flowchart LR
+    User[User / Browser] --> FE[Frontend - React TanStack Start]
+    FE --> API[Backend API - Express]
+    API --> DB[(PostgreSQL Database)]
+```
 
-Core API:
-- `GET /api/health`: kiểm tra deploy và tình trạng backend
+Thanh phan:
+- Frontend: `frontend` - React/TanStack Start.
+- Backend API: `backend` - Express.
+- Database: PostgreSQL 16.
+- Docker: `backend/Dockerfile`, `frontend/Dockerfile`, `docker-compose.yml`.
+- CI/CD: `.github/workflows/ci.yml`.
+
+API bat buoc:
+- `GET /api/health` - dung de kiem tra backend/deploy.
+
+API chinh:
 - `GET /api/bookings`
+- `GET /api/bookings/stats`
+- `GET /api/bookings/customers`
 - `POST /api/bookings`
 - `PATCH /api/bookings/:id`
 - `PATCH /api/bookings/:id/status`
+- `PATCH /api/bookings/:id/cancel`
 - `DELETE /api/bookings/:id`
 
-Dữ liệu thật:
-- Booking lưu trong MySQL.
-- Có tạo/sửa/xóa.
-- Có vòng đời trạng thái: `pending -> confirmed -> completed`, hoặc `pending/confirmed -> cancelled`.
-- Có chống đặt trùng slot booking.
+## 2. Du lieu va logic
 
-## 2. Run With Docker (Recommended)
+Ung dung co du lieu that trong PostgreSQL:
+- Them/sua/xoa bookings.
+- Trang thai thay doi: `pending`, `confirmed`, `cancelled`, `completed`.
+- Thong ke dashboard theo tong booking, booking hom nay va booking theo status.
+- Danh sach customers tong hop tu booking.
 
-Yêu cầu: Docker Desktop + Docker Compose.
+Validation booking:
+- Booking moi luon bat dau voi `pending`.
+- Luong status hop le:
+  - `pending -> confirmed`
+  - `pending -> cancelled`
+  - `confirmed -> completed`
+  - `confirmed -> cancelled`
+- `cancelled` va `completed` la trang thai ket thuc, khong duoc sua hoac doi sang trang thai khac.
+- Khong cho dat trung cung `service + date + time` neu booking dang `pending`, `confirmed` hoac `completed`.
+- Booking `cancelled` se giai phong slot de co the dat lai.
 
-1. Tạo file env từ mẫu:
-   - Copy `.env.example` thành `.env`
-2. Chạy hệ thống:
-   - `docker compose up -d --build`
-3. Kiểm tra nhanh:
-   - Health API: `http://localhost:3000/api/health`
-   - Frontend: `http://localhost`
+## 3. Chay bang Docker
+
+Yeu cau: Docker Desktop va Docker Compose.
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+docker compose ps
+```
+
+Kiem tra:
+- Frontend: `http://localhost`
+- Health API: `http://localhost:3000/api/health`
+- Bookings API: `http://localhost:3000/api/bookings`
 
 Service map:
-- Frontend: port `80`
-- Backend: port `3000`
-- MySQL: host port `3307` -> container `3306`
+- Frontend: host port `80`.
+- Backend: host port `3000`.
+- PostgreSQL: host port `5432`.
 
-## 3. Local Dev (Optional)
+Log/debug:
+```bash
+docker compose logs -f frontend
+docker compose logs -f backend
+docker compose logs -f postgres
+docker compose config
+```
 
-- Backend:
-  - `cd backend`
-  - `npm ci`
-  - `npm run dev`
-- Frontend:
-  - `cd frontend`
-  - `npm ci`
-  - `npm run dev`
+Neu gap thong bao container da chay san, dung:
+```bash
+docker compose ps
+docker compose restart backend frontend
+```
 
-Frontend dùng `VITE_API_URL` từ env.
+## 4. Local dev
 
-## 4. CI/CD Flow
+Backend:
+```bash
+cd backend
+npm ci
+npm run dev
+```
+
+Frontend:
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Bien moi truong quan trong:
+- `DATABASE_URL`: connection string PostgreSQL cho backend.
+- `DB_SSL`: dat `true` khi database cloud yeu cau SSL, local Docker de `false`.
+- `CORS_ORIGIN`: domain frontend duoc phep goi API.
+- `VITE_API_URL`: base URL API cho frontend.
+
+## 5. CI/CD flow
+
+```mermaid
+flowchart LR
+    Code[Push / Pull Request] --> CI[GitHub Actions]
+    CI --> Install[npm ci]
+    Install --> Lint[npm run lint]
+    Lint --> Test[npm test]
+    Test --> Build[npm run build]
+    Build --> Deploy[Deploy Docker / Hosting]
+```
 
 Workflow: `.github/workflows/ci.yml`
 
 Trigger:
-- `push` vào `main`, `dev`, `feature/**`
-- `pull_request` vào `main`, `dev`
+- `push` vao `main`, `develop`, `feature/**`.
+- `pull_request` vao `main`, `develop`.
 
 Jobs:
-- Backend: `install -> lint -> test -> build`
-- Frontend: `install -> lint -> test -> build`
+- Backend: install, lint, test, build check.
+- Frontend: install, lint, test, build.
 
-Pipeline sẽ fail nếu step nào lỗi.
+Pipeline se fail neu co step loi.
 
-## 5. Checklist Demo
+## 6. Deploy goi y
 
-System:
-- Frontend load được.
-- `GET /api/health` trả `ok: true`.
-- API bookings trả dữ liệu thật từ DB.
+VPS/Docker:
+```bash
+git clone https://github.com/VanSyx/DevOps_BookingSystem.git
+cd DevOps_BookingSystem
+cp .env.example .env
+docker compose up -d --build
+curl http://localhost:3000/api/health
+```
 
-Docker:
-- Có `backend/Dockerfile`, `frontend/Dockerfile`, `docker-compose.yml`.
-- `docker compose up -d` chạy đủ `frontend`, `backend`, `mysql`.
-- Xem log bằng `docker compose logs -f backend` (hoặc frontend/mysql).
+Render/Railway/VPS tach service:
+- Tao PostgreSQL database.
+- Backend env:
+  - `NODE_ENV=production`
+  - `PORT=3000`
+  - `DATABASE_URL=<postgres connection string>`
+  - `DB_SSL=true` neu database cloud yeu cau SSL
+  - `CORS_ORIGIN=<frontend public url>`
+- Frontend env/build arg:
+  - `VITE_API_URL=<backend public url>/api`
 
-Environment:
-- Có `.env.example`.
-- Không commit `.env`.
-- Secret/config không hardcode trong `docker-compose.yml`.
+Sau khi deploy, kiem tra:
+- Public frontend URL load duoc.
+- Public backend `GET /api/health` tra `{ "ok": true }`.
+- Tao/sua/xoa booking tren UI va kiem tra DB co thay doi.
 
-## 6. Debug By Layer
+## 7. Debug theo layer
 
-- L4 Frontend:
-  - Browser DevTools console/network
-- L3 Backend:
-  - `docker compose logs -f backend`
-- L2 External (DB):
-  - `docker compose logs -f mysql`
-- L1 Infrastructure:
-  - `docker compose ps`
-  - `docker compose config`
+- L4 Frontend: Browser DevTools Console/Network, kiem tra `VITE_API_URL`.
+- L3 Backend: `docker compose logs -f backend`, kiem tra status code va validation error.
+- L2 Database: `docker compose logs -f postgres`, kiem tra connection string va schema.
+- L1 Infrastructure: `docker compose ps`, `docker compose config`, port mapping va healthcheck.
 
-## 7. Incident Samples (QA/SRE)
+## 8. Incident samples
 
-Incident 1: API `500` khi backend mất kết nối DB  
-Hiện tượng: gọi `/api/bookings` lỗi 500  
-Layer: L3/L2  
-Nguyên nhân: sai DB env hoặc MySQL chưa healthy  
-Fix: kiểm tra `.env`, `depends_on` và healthcheck MySQL  
-Phòng tránh: chuẩn hóa `.env.example`, thêm verify health trước demo
+Incident 1: API 500 khi backend khong ket noi DB
+- Layer: L3/L2.
+- Log: backend bao loi ket noi PostgreSQL hoac schema init fail.
+- Nguyen nhan: sai `DATABASE_URL`, DB chua healthy hoac container postgres chua chay.
+- Fix: kiem tra `.env`, `docker compose ps`, `docker compose logs -f postgres`, restart stack.
+- Phong tranh: dung `.env.example`, `depends_on` healthcheck va `/api/health`.
 
-Incident 2: CORS block trên frontend  
-Hiện tượng: browser báo CORS error  
-Layer: L4/L3  
-Nguyên nhân: `CORS_ORIGIN` sai domain  
-Fix: chỉnh `CORS_ORIGIN` đúng URL frontend  
-Phòng tránh: tách env theo môi trường deploy
+Incident 2: Frontend bi CORS/network error
+- Layer: L4/L3.
+- Log: browser console bao CORS hoac fetch failed.
+- Nguyen nhan: `CORS_ORIGIN` hoac `VITE_API_URL` sai URL deploy.
+- Fix: cap nhat env frontend/backend, rebuild frontend.
+- Phong tranh: tach env dev/prod, kiem tra Network tab truoc demo.
 
-Incident 3: Trùng lịch booking  
-Hiện tượng: tạo 2 booking cùng slot thất bại  
-Layer: L3/L2  
-Nguyên nhân: vi phạm rule unique slot active  
-Fix: backend trả `409`, frontend hiển thị lỗi  
-Phòng tránh: validate trước submit + giữ unique rule ở DB
+Incident 3: Dat trung booking slot
+- Layer: L3/L2.
+- Log: API tra `409 This booking slot is already taken`.
+- Nguyen nhan: ton tai booking active cung service, date, time.
+- Fix: doi gio/dich vu hoac cancel booking cu.
+- Phong tranh: validate backend va unique index `uq_active_booking_slot` tren database.
+
+## 9. Checklist nop bai
+
+- Frontend load duoc.
+- Backend API hoat dong.
+- Database co du lieu that, co them/sua/xoa.
+- `GET /api/health` hoat dong.
+- Booking co status va lich su thay doi qua `updated_at`.
+- Docker Compose chay du `frontend`, `backend`, `postgres`.
+- CI/CD GitHub Actions co install/lint/test/build.
+- Khong hardcode secret; su dung `.env.example`.
+- Co huong dan debug/log theo layer.
+- Co it nhat 3 incident mau de dua vao bao cao.
