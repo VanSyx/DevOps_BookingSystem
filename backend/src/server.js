@@ -5,17 +5,15 @@ const { ensureSchema } = require('./database/schema');
 
 const PORT = process.env.PORT || 3000;
 
-const pool = mysql.createPool({
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT || 3306,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASS,
-    database: process.env.DB_NAME,
-    waitForConnections: true,
-    connectionLimit: 10,
+const { Pool } = require('pg');
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production'
+    ? { rejectUnauthorized: false }
+    : false
 });
 
-// Gắn pool vào app để dùng trong controller
 app.locals.db = pool;
 
 async function start() {
