@@ -4,12 +4,18 @@ Booking system theo yeu cau DevOps: co Frontend, Backend API, Database, Docker C
 
 ## 1. Kien truc
 
+HEAD
 ```mermaid
 flowchart LR
     User[User / Browser] --> FE[Frontend - React TanStack Start]
     FE --> API[Backend API - Express]
     API --> DB[(PostgreSQL Database)]
 ```
+
+- Frontend: React/TanStack Start (`frontend`)
+- Backend API: Express (`backend`)
+- Database:  PostgreSQL 
+main
 
 Thanh phan:
 - Frontend: `frontend` - React/TanStack Start.
