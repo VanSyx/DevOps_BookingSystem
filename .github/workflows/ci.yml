@@ -1,4 +1,4 @@
-name: CI - Booking System
+name: CI/CD - Booking System
 
 on:
   push:
@@ -68,3 +68,35 @@ jobs:
         run: npm run build
         env:
           VITE_API_URL: http://localhost:3000/api
+
+  deploy:
+    name: Deploy to Render
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Validate deploy hook secrets
+        env:
+          RENDER_BACKEND_DEPLOY_HOOK_URL: ${{ secrets.RENDER_BACKEND_DEPLOY_HOOK_URL }}
+          RENDER_FRONTEND_DEPLOY_HOOK_URL: ${{ secrets.RENDER_FRONTEND_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_BACKEND_DEPLOY_HOOK_URL" ]; then
+            echo "::error::Missing GitHub secret RENDER_BACKEND_DEPLOY_HOOK_URL"
+            exit 1
+          fi
+
+          if [ -z "$RENDER_FRONTEND_DEPLOY_HOOK_URL" ]; then
+            echo "::error::Missing GitHub secret RENDER_FRONTEND_DEPLOY_HOOK_URL"
+            exit 1
+          fi
+
+      - name: Deploy backend on Render
+        env:
+          RENDER_BACKEND_DEPLOY_HOOK_URL: ${{ secrets.RENDER_BACKEND_DEPLOY_HOOK_URL }}
+        run: curl --fail --show-error --request POST "$RENDER_BACKEND_DEPLOY_HOOK_URL"
+
+      - name: Deploy frontend on Render
+        env:
+          RENDER_FRONTEND_DEPLOY_HOOK_URL: ${{ secrets.RENDER_FRONTEND_DEPLOY_HOOK_URL }}
+        run: curl --fail --show-error --request POST "$RENDER_FRONTEND_DEPLOY_HOOK_URL"
