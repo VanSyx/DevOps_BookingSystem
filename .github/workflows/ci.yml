@@ -79,7 +79,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'    
 
     steps:
-      - name: Validate deploy hook secrets // Đảm bảo rằng các bí mật (secrets) cần thiết đã được thiết lập trước khi tiến hành triển khai.
+      - name: Validate deploy hook secrets 
         env:
           RENDER_BACKEND_DEPLOY_HOOK_URL: ${{ secrets.RENDER_BACKEND_DEPLOY_HOOK_URL }}
           RENDER_FRONTEND_DEPLOY_HOOK_URL: ${{ secrets.RENDER_FRONTEND_DEPLOY_HOOK_URL }}
@@ -96,10 +96,9 @@ jobs:
 
       - name: Deploy backend on Render
         env:
-          RENDER_BACKEND_DEPLOY_HOOK_URL: ${{ secrets.RENDER_BACKEND_DEPLOY_HOOK_URL }} //Đặt biến môi trường cho bước này từ secret.
-        run: curl --fail --show-error --request POST "$RENDER_BACKEND_DEPLOY_HOOK_URL" //Gửi yêu cầu POST đến URL deploy hook của backend để kích hoạt quá trình triển khai trên Render.
-
+          RENDER_BACKEND_DEPLOY_HOOK_URL: ${{ secrets.RENDER_BACKEND_DEPLOY_HOOK_URL }} 
+        run: curl --fail --show-error --request POST "$RENDER_BACKEND_DEPLOY_HOOK_URL"
       - name: Deploy frontend on Render
         env:
-          RENDER_FRONTEND_DEPLOY_HOOK_URL: ${{ -ecrets.RENDER_FRONTEND_DEPLOY_HOOK_URL }} 
+          RENDER_FRONTEND_DEPLOY_HOOK_URL: ${{ secrets.RENDER_FRONTEND_DEPLOY_HOOK_URL }} 
         run: curl --fail --show-error --request POST "$RENDER_FRONTEND_DEPLOY_HOOK_URL" 
