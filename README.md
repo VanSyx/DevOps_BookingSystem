@@ -307,7 +307,6 @@ Trigger:
 
 - Push vao `main`.
 - Push vao `develop`.
-- Push vao `feature/**`.
 - Pull request vao `main` hoac `develop`.
 
 Quyen workflow:
